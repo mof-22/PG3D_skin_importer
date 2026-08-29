@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PG3D CustomSkin Importer</title>
+    <link rel="stylesheet" href="style.css" />
+    <script>
+      // テーマ適用が遅れて一瞬だけ意図しない配色で表示される(FOUC)のを防ぐため、
+      // 他のスクリプトより先に同期実行して data-theme を確定させる。
+      (function () {
+        try {
+          var t = localStorage.getItem("pg3d_skin_importer_theme");
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script src="theme.js" defer></script>
+    <script src="i18n.js" defer></script>
+    <script src="image_processor.js" defer></script>
+    <script src="reg_io.js" defer></script>
+    <script src="skin_store.js" defer></script>
+    <script src="skin_viewer_3d.js" defer></script>
+    <script src="zip_writer.js" defer></script>
+    <script src="ui.js" defer></script>
+    <script src="main.js" defer></script>
+  </head>
+
+  <body>
+    <header class="app-header">
+      <h1 data-i18n="app.title">PG3D カスタムスキン インポーター</h1>
+      <div class="header-controls">
+        <label class="lang-switch">
+          <span data-i18n="header.theme">テーマ</span>
+          <select id="theme_select">
+            <option value="system" data-i18n="theme.system">システム設定</option>
+            <option value="light" data-i18n="theme.light">ライト</option>
+            <option value="dark" data-i18n="theme.dark">ダーク</option>
+          </select>
+        </label>
+        <label class="lang-switch">
+          <span data-i18n="header.language">言語</span>
+          <select id="lang_select">
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <div class="app-layout">
+    <main class="app-main">
+      <section class="card" id="panel-add">
+        <h2 data-i18n="add.title">スキンを追加</h2>
+        <div class="add-row">
+          <label class="file-btn">
+            <input type="file" id="imgInput" accept="image/*" multiple hidden />
+            <span data-i18n="add.selectImages">画像を選択</span>
+          </label>
+          <label class="file-btn file-btn--secondary">
+            <input type="file" id="regInput" accept=".reg" hidden />
+            <span data-i18n="add.importReg">.reg から読み込む</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card" id="panel-options">
+        <h2 data-i18n="options.title">加工オプション</h2>
+        <p id="options_disabled_hint" class="hint options-disabled-hint hidden" data-i18n="options.disabledHint">
+          インポート済みスキンは元データがないため再加工できません
+        </p>
+        <dl>
+          <dt>
+            <label>
+              <input type="checkbox" id="use_process_skin" checked />
+              <span data-i18n="options.useProcessSkin">スキンの自動加工</span>
+            </label>
+          </dt>
+          <dd class="options-sub">
+            <label>
+              <input type="checkbox" id="use_flip_arm_top" checked />
+              <span data-i18n="options.flipArmTop"
+                >腕の上面をX軸反転</span
+              >
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                id="use_seccond_layer_eyeline_remove"
+                checked
+              />
+              <span data-i18n="options.eyelineRemove"
+                >レイヤーのアイライン上書きを除去</span
+              >
+            </label>
+            <dl class="options-nested">
+              <dt>
+                <label>
+                  <input
+                    type="checkbox"
+                    id="skip_seccond_layer_ovarlay_all"
+                  />
+                  <span data-i18n="options.skipAll"
+                    >全レイヤー上書きをスキップ</span
+                  >
+                </label>
+              </dt>
+              <dd class="options-sub">
+                <label>
+                  <input
+                    type="checkbox"
+                    id="skip_seccond_layer_ovarlay_head"
+                  />
+                  <span data-i18n="options.skipHead"
+                    >頭部レイヤーをスキップ</span
+                  >
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    id="skip_seccond_layer_ovarlay_body"
+                  />
+                  <span data-i18n="options.skipBody"
+                    >胴体レイヤーをスキップ</span
+                  >
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    id="skip_seccond_layer_ovarlay_arm"
+                  />
+                  <span data-i18n="options.skipArm"
+                    >腕レイヤーをスキップ</span
+                  >
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    id="skip_seccond_layer_ovarlay_leg"
+                  />
+                  <span data-i18n="options.skipLeg"
+                    >脚レイヤーをスキップ</span
+                  >
+                </label>
+              </dd>
+            </dl>
+          </dd>
+        </dl>
+        <div class="options-row">
+          <label>
+            <span data-i18n="options.textureSideArm">使用する腕テクスチャ</span>
+            <select id="texture_side_arm">
+              <option value="right" data-i18n="options.armRight">右腕</option>
+              <option value="left" data-i18n="options.armLeft">左腕</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="options.textureSideLeg">使用する脚テクスチャ</span>
+            <select id="texture_side_leg">
+              <option value="right" data-i18n="options.legRight">右脚</option>
+              <option value="left" data-i18n="options.legLeft">左脚</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="options.armWidthMode">腕の幅判定</span>
+            <select id="arm_width_mode">
+              <option value="auto" data-i18n="options.armWidthAuto">自動判定</option>
+              <option value="force3px" data-i18n="options.armWidthForce3px">
+                3pxとして変換する
+              </option>
+              <option value="force4px" data-i18n="options.armWidthForce4px">
+                4px済みとして扱う(変換しない)
+              </option>
+            </select>
+          </label>
+        </div>
+        <button id="btn_reprocess" data-i18n="options.applyToAll">
+          全スキンに現在のオプションを適用
+        </button>
+      </section>
+
+      <section class="card" id="panel-list">
+        <div class="panel-list-header">
+          <h2 data-i18n="list.title">スキン一覧</h2>
+          <span id="list_count" class="count-badge">0</span>
+          <label class="select-all">
+            <input type="checkbox" id="select_all_checkbox" />
+            <span data-i18n="list.selectAll">全選択</span>
+          </label>
+          <button
+            id="btn_apply_selected"
+            class="btn-icon btn-apply-selected"
+            disabled
+            data-i18n="list.applySelected"
+          >
+            選択に現在のオプションを適用
+          </button>
+          <button
+            id="btn_delete_selected"
+            class="btn-icon btn-icon--danger btn-delete-selected"
+            disabled
+            data-i18n="list.deleteSelected"
+          >
+            選択を削除
+          </button>
+        </div>
+        <p id="list_empty" class="empty-hint" data-i18n="list.empty">
+          まだスキンがありません。画像を追加するか .reg を読み込んでください。
+        </p>
+        <ul id="skin_list" class="skin-list"></ul>
+      </section>
+    </main>
+
+    <aside class="app-preview">
+      <div class="preview-panel">
+        <h2 data-i18n="preview.title">3Dプレビュー</h2>
+        <div class="preview-canvas-wrap">
+          <canvas id="preview_canvas" class="preview-canvas"></canvas>
+          <p id="preview_empty" class="preview-empty" data-i18n="preview.empty">
+            スキン一覧の画像にカーソルを合わせるとここに3Dプレビューが表示されます
+          </p>
+        </div>
+        <p id="preview_name" class="preview-name"></p>
+        <p id="preview_pin_hint" class="pin-hint hidden" data-i18n="list.pinned">
+          📌 固定中(クリックで解除)
+        </p>
+        <p class="preview-hint" data-i18n="preview.hint">
+          ドラッグで回転・ホイールでズーム
+        </p>
+      </div>
+    </aside>
+    </div>
+
+    <footer class="app-footer">
+      <label class="footer-option">
+        <input type="checkbox" id="write_skin_names" checked />
+        <span data-i18n="footer.writeNames">スキン名を書き出す</span>
+      </label>
+      <div class="footer-actions">
+        <button
+          id="btn_download_images"
+          class="btn-secondary"
+          data-i18n="footer.downloadImages"
+        >
+          画像を一括ダウンロード
+        </button>
+        <button
+          id="btn_generate"
+          class="btn-primary"
+          data-i18n="footer.generate"
+        >
+          .reg ファイルを生成
+        </button>
+      </div>
+    </footer>
+  </body>
+</html>
